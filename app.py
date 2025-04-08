@@ -1,17 +1,27 @@
 from flask import Flask, jsonify
 from notion_client import Client
 from flask_cors import CORS
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file (if present)
+load_dotenv()
 
 app = Flask(__name__)
-CORS(app)  # Allows you to call this API from GPT or anywhere
+CORS(app)  # Allows API calls from anywhere
 
-# 🪄 Your Notion integration token (the "secret_xxx" value)
-notion = Client(auth="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")
+# Retrieve the Notion integration token from the environment
+notion_token = os.getenv("NOTION_TOKEN")
+if not notion_token:
+    raise Exception("NOTION_TOKEN is not set in the environment variables.")
+
+# Instantiate the Notion client with the token
+notion = Client(auth=notion_token)
 
 @app.route("/get-notes/<string:page_id>", methods=["GET"])
 def get_notes(page_id):
     try:
-        # Get all content blocks from the page
+        # Get all content blocks from the Notion page
         response = notion.blocks.children.list(page_id)
         notes = []
 
@@ -27,7 +37,7 @@ def get_notes(page_id):
                         if plain_text:
                             notes.append(plain_text)
 
-                elif "text" in block_content:  # fallback
+                elif "text" in block_content:  # fallback for blocks using "text" key
                     for t in block_content["text"]:
                         plain_text = t.get("plain_text", "").strip()
                         if plain_text:
