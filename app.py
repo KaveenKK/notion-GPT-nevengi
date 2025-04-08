@@ -1,60 +1,53 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from notion_client import Client
 from flask_cors import CORS
 import os
 from dotenv import load_dotenv
 
-# Load environment variables from .env file (if present)
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app)  # Allows API calls from anywhere
+CORS(app)
 
-# Retrieve the Notion integration token from the environment
-notion_token = os.getenv("NOTION_TOKEN")
-if not notion_token:
-    raise Exception("NOTION_TOKEN is not set in the environment variables.")
+# Auth keys
+NOTION_TOKEN = os.getenv("NOTION_TOKEN")
+API_KEY = os.getenv("API_KEY")  # Your custom secret token
 
-# Instantiate the Notion client with the token
-notion = Client(auth=notion_token)
+# Pages to load (comma-separated)
+PAGE_IDS = os.getenv("PAGE_IDS", "").split(",")
 
-@app.route("/get-notes/<string:page_id>", methods=["GET"])
-def get_notes(page_id):
+notion = Client(auth=NOTION_TOKEN)
+
+@app.route("/get-all-notes", methods=["GET"])
+def get_all_notes():
+    # Auth check
+    client_token = request.headers.get("Authorization", "")
+    if client_token != f"Bearer {API_KEY}":
+        return jsonify({"error": "Unauthorized"}), 401
+
+    all_notes = []
+
     try:
-        # Get all content blocks from the Notion page
-        response = notion.blocks.children.list(page_id)
-        notes = []
+        for page_id in PAGE_IDS:
+            response = notion.blocks.children.list(page_id.strip())
+            for block in response["results"]:
+                block_type = block.get("type")
+                block_data = block.get(block_type, {})
 
-        for block in response["results"]:
-            block_type = block.get("type")
-
-            if block_type and block_type in block:
-                block_content = block[block_type]
-                
-                if "rich_text" in block_content:
-                    for rt in block_content["rich_text"]:
-                        plain_text = rt.get("plain_text", "").strip()
-                        if plain_text:
-                            notes.append(plain_text)
-
-                elif "text" in block_content:  # fallback for blocks using "text" key
-                    for t in block_content["text"]:
-                        plain_text = t.get("plain_text", "").strip()
-                        if plain_text:
-                            notes.append(plain_text)
+                if "rich_text" in block_data:
+                    for rt in block_data["rich_text"]:
+                        text = rt.get("plain_text", "").strip()
+                        if text:
+                            all_notes.append(text)
 
         return jsonify({
             "status": "success",
-            "summary": "\n".join(notes)
+            "summary": "\n".join(all_notes)
         })
 
     except Exception as e:
-        return jsonify({
-            "status": "error",
-            "message": str(e)
-        }), 500
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
-
+    app.run(debug=True, host="0.0.0.0", port=port)
